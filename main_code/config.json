@@ -1,0 +1,67 @@
+{
+    "root_path": "/export1/project/Jiaming/Shoushtari/RED_MRI/",
+    "code_path": "/export1/project/Jiaming/Shoushtari/RED_MRI/main_code",
+    
+    "setting": {
+        "multiGPU": true,
+        "gpu_index": "6,7",
+        "num_gpus": 0,
+        "print": 1
+    },
+
+    "dataset": {
+
+        "num_parallel_calls": -1,
+        "train_datapath" : "/export1/project/Jiaming/Shoushtari/RED_MRI/Dataset/BrainImages_train/Training_BrainImages_256x256_100.mat",
+        "valid_datapath" : "/export1/project/Jiaming/Shoushtari/RED_MRI/Dataset/BrainImages_test",
+        "Phi_datapath" : "/export1/project/Jiaming/Shoushtari/RED_MRI/Dataset/sampling_matrix",
+        "Qinit_datapath" : "/export1/project/Jiaming/Shoushtari/RED_MRI/Dataset/sampling_matrix",
+        
+        "train": {
+            "CS_ratio": 10,
+            "IMG_Patch": 256,
+            "inputSNR":"inf"
+        },
+        
+        "valid": {
+            "CS_ratio": 10,
+            "IMG_Patch": 256,
+            "inputSNR": "inf"
+        }        
+    },
+
+    "cnn_model": {
+        "network": "DnCNN",
+        "depth_forward": 1,
+        "depth_backward": 1,
+        "n_channels": 64,
+        "image_channels" : 1,
+        "kernel_size": 3
+    },
+
+    "unfold_model": {
+        "num_iter":20,
+        "gamma_inti": 0.005,
+        "tau_inti": 2
+    },
+
+    "train": {
+        "inti_lr": 5e-4,
+        "batch_size": 2,
+        "num_train": 800,
+        "unfold_lr_milstone": 120,
+        "start_epoch": 0,
+        "end_epoch": 300,
+        "save_epoch": 1
+    },
+
+    "keep_training":{
+        "load_path" : "/export1/project/Jiaming/Shoushtari/UnfoldFX_MRI/model_zoo/L12_AR/cs_10_sigma_0.pkl"
+    },
+
+    "valid": {
+        "num_valid":100,
+        "batch_size": 4
+    }
+
+}
