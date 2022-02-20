@@ -1,4 +1,5 @@
 Dataset/
 model_zoo/
 Experiements/
-main_code/log/
+logs/
+.vscode/

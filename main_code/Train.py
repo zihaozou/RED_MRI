@@ -1,35 +1,31 @@
+import os
+import json
+from torch.utils.data import Dataset, DataLoader
+from torch.utils.tensorboard import SummaryWriter
+import torchvision.utils as utils
+import torch.nn.functional as F
+from torch.nn import init
+import torch.nn as nn
+import torch
+from utils.util import *
+from skimage.measure import compare_ssim as ssim
+from collections import OrderedDict
+from argparse import ArgumentParser
+from datetime import datetime
+import scipy.io as sio
+from tqdm import tqdm
+import numpy as np
+import platform
+import glob
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-import json
-import os
 with open('config.json') as File:
     config = json.load(File)
 print('You are currently using GPU: ', config['setting']['gpu_index'])
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = config['setting']['gpu_index']
 
-import torch
-import torch.nn as nn
-from torch.nn import init
-import torch.nn.functional as F
-import torchvision.utils as utils
-from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import Dataset, DataLoader
-
-from utils.spectral_normalization import SpectralNorm
-
-import glob
-import platform
-import numpy as np
-from tqdm import tqdm
-import scipy.io as sio
-from datetime import datetime
-from argparse import ArgumentParser
-from collections import OrderedDict
-from skimage.measure import compare_ssim as ssim
-
-from utils.util import *
 
 now = datetime.now()
 root_path = config['root_path']
@@ -46,17 +42,19 @@ layer_num = config['unfold_model']['num_iter']
 n_channels = config['cnn_model']['n_channels']
 
 cs_ratio = config["dataset"]['train']['CS_ratio']
-n_output = config["dataset"]['train']['IMG_Patch'] **2
+n_output = config["dataset"]['train']['IMG_Patch'] ** 2
 # n_input = ratio_dict[cs_ratio]
 
 save_dir = root_path + "Experiements/Unfold_prior_MRI" + \
-    "/Conv/%s_CS_SN-DnCNN_artifact_layer_%d_ratio_%d_lr_%.4f_WS" % (str(now.strftime("%d-%b-%Y-%H-%M-%S")), layer_num, cs_ratio, learning_rate)
+    "/Conv/%s_CS_SN-DnCNN_artifact_layer_%d_ratio_%d_lr_%.4f_WS" % (
+        str(now.strftime("%d-%b-%Y-%H-%M-%S")), layer_num, cs_ratio, learning_rate)
 
-copytree(src=config['code_path'], dst=save_dir)    
+copytree(src=config['code_path'], dst=save_dir)
 writer = SummaryWriter(log_dir=os.path.join(save_dir, 'log'))
 
 # Load CS Sampling Matrix: phi
-Phi_data_Name = '%s/mask_%d.mat' % (config["dataset"]['Phi_datapath'], cs_ratio)
+Phi_data_Name = '%s/mask_%d.mat' % (config["dataset"]
+                                    ['Phi_datapath'], cs_ratio)
 Phi_data = sio.loadmat(Phi_data_Name)
 mask_matrix = Phi_data['mask_matrix']
 
@@ -85,7 +83,7 @@ ImgNum = len(filepaths_test)
 #         # res.append((xnext - s).norm().item())
 #         tnext = 0.5*(1+torch.sqrt(1+4*t*t))
 #         s = xnext + ((t-1)/tnext)*(xnext-x)
-        
+
 #         # update
 #         t = tnext
 #         x = xnext
@@ -99,19 +97,19 @@ ImgNum = len(filepaths_test)
 #     F = torch.zeros(bsz, m, d*H*W, dtype=x0.dtype, device=x0.device)
 #     X[:,0], F[:,0] = x0.view(bsz, -1), f(x0).view(bsz, -1)
 #     X[:,1], F[:,1] = F[:,0], f(F[:,0].view_as(x0)).view(bsz, -1)
-    
+
 #     H = torch.zeros(bsz, m+1, m+1, dtype=x0.dtype, device=x0.device)
 #     H[:,0,1:] = H[:,1:,0] = 1
 #     y = torch.zeros(bsz, m+1, 1, dtype=x0.dtype, device=x0.device)
 #     y[:,0] = 1
-    
+
 #     res = []
 #     for k in range(2, max_iter):
 #         n = min(k, m)
 #         G = F[:,:n]-X[:,:n]
 #         H[:,1:n+1,1:n+1] = torch.bmm(G,G.transpose(1,2)) + lam*torch.eye(n, dtype=x0.dtype,device=x0.device)[None]
 #         alpha = torch.solve(y[:,:n+1], H[:,:n+1,:n+1])[0][:, 1:n+1, 0]   # (bsz x n)
-        
+
 #         X[:,k%m] = beta * (alpha[:,None] @ F[:,:n])[:,0] + (1-beta)*(alpha[:,None] @ X[:,:n])[:,0]
 #         F[:,k%m] = f(X[:,k%m].view_as(x0)).view(bsz, -1)
 #         res.append((F[:,k%m] - X[:,k%m]).norm().item()/(1e-5 + F[:,k%m].norm().item()))
@@ -149,39 +147,9 @@ ImgNum = len(filepaths_test)
 #             x = x.view(x_dim_0, x_dim_1, x_dim_2, x_dim_3)
 #         return x
 
-class DnCNN(nn.Module):
-    def __init__(self, network= 'Dncnn', net_mode=1, depth=12, n_channels=64, image_channels=1, kernel_size=3, is_traing=True):
-        super(DnCNN, self).__init__()
-        padding = kernel_size // 2
-        layers = []
-        self.is_traing = is_traing
-        layers.append(SpectralNorm(nn.Conv2d(
-            in_channels=image_channels, out_channels=n_channels, kernel_size=kernel_size, padding=padding, bias=False)))
-        layers.append(nn.ReLU())
 
-        for _ in range(depth-1):
-            layers.append(SpectralNorm(nn.Conv2d(
-                in_channels=n_channels, out_channels=n_channels, kernel_size=kernel_size, padding=padding, bias=True)))
-            layers.append(nn.ReLU())
 
-        layers.append(SpectralNorm(nn.Conv2d(
-            in_channels=n_channels, out_channels=image_channels, kernel_size=kernel_size, padding=padding, bias=False)))
 
-        self.dncnn_3 = nn.Sequential(*layers)
-
-    def forward(self, x_input):
-        return self.dncnn_3(x_input).mean([1,2,3]).sum()
-
-import torch.autograd as autograd
-
-class jacobinNet(nn.Module):
-    """Unfold network models, i.e. (online) PnP/RED"""
-    def __init__(self, dnn: nn.Module):
-        super(jacobinNet, self).__init__()
-        self.dnn = dnn
-    def forward(self, x, create_graph=True, strict=True):
-        J = autograd.functional.jacobian(self.dnn, x, create_graph=create_graph, strict=strict)
-        return J
 
 # # Define ISTA-Net-plus
 # class ISTANetplus(nn.Module):

@@ -8,7 +8,7 @@ import copy
 import numpy as np
 import torch.nn as nn
 from scipy.optimize import fminbound
-from skimage.measure import compare_ssim as ssim
+from skimage.metrics import structural_similarity as ssim
 
 evaluateSnr = lambda x, xhat: 20*np.log10(np.linalg.norm(x.flatten('F'))/np.linalg.norm(x.flatten('F')-xhat.flatten('F')))
 
