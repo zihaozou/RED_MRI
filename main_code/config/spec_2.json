@@ -16,6 +16,7 @@
     },
     "cnn_model": {
         "norm": "spec",
+        "pure": true,
         "depth": 17,
         "num_chans": 64,
         "image_chans": 1,

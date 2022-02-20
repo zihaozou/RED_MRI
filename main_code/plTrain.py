@@ -76,7 +76,8 @@ class plWrapper(pl.LightningModule):
             self.dncnn = spDnCNN(depth=self.hparams['cnnDepth'],
                                  n_channels=self.hparams['cnnNumChannels'],
                                  image_channels=self.hparams['cnnImageChannels'],
-                                 kernel_size=self.hparams['cnnKernelSize'])
+                                 kernel_size=self.hparams['cnnKernelSize'],
+                                 pureCnn=self.hparams.pure)
 
         elif self.hparams['norm'] == 'realspec':
             self.dncnn = realSNDnCNN(1)
@@ -102,7 +103,8 @@ class plWrapper(pl.LightningModule):
         image, noise = batch
         noisyImage = image+noise
         predNoise = self(noisyImage, create_graph=True, strict=True)
-        loss = nn.functional.mse_loss(predNoise, noise)
+
+        loss = torch.mean(torch.pow(predNoise.detach()-noise.detach(), 2))
         with torch.no_grad():
             train_snr = compare_snr(image, noisyImage-predNoise)
         self.log("train_loss", loss, on_step=False,
@@ -254,6 +256,7 @@ if __name__ == "__main__":
     cnnImageChans = config['cnn_model']['image_chans']
     cnnKernelSize = config['cnn_model']['kernel_size']
     norm = config['cnn_model']['norm']
+    pure = config['cnn_model']['pure']
     # training
     lr = config['train']['lr']
     weighDecay = config['train']['weigh_decay']
@@ -272,7 +275,8 @@ if __name__ == "__main__":
                       num_workers=numWorkers,
                       batch_size=batchSize,
                       norm=norm,
-                      jacob=args.jacob)
+                      jacob=args.jacob,
+                      pure=pure)
     # create trainer
     run_name = args.conf_path.split('/')[-1].split('.')[0]
     if args.jacob:
@@ -284,7 +288,7 @@ if __name__ == "__main__":
         mode='max',
         filename='best_model')
     trainer = pl.Trainer(default_root_dir=join(root_path, run_name),
-                         gpus=numGPU,
+                         gpus=0,
                          max_epochs=numTrain,
                          num_sanity_val_steps=0,
                          check_val_every_n_epoch=1,
