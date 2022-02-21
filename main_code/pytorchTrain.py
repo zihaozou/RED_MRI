@@ -110,15 +110,13 @@ if __name__ == '__main__':
         for b, image in enumerate(tqdm(trainLoader)):
             optimizer.zero_grad()
             image = image.cuda()
-            #noise = torch.FloatTensor(image.size()).normal_(mean=0, std=50./255.).cuda()
-            noise = torch.zeros_like(image).cuda()
+            noise = torch.FloatTensor(image.size()).normal_(
+                mean=0, std=50./255.).cuda()
+            #noise = torch.zeros_like(image).cuda()
             noisyImage = image+noise
             noisyImage.requires_grad=True
             predNoise = jacob(noisyImage, create_graph=True, strict=True)
             loss = nn.functional.mse_loss(predNoise, noise)
-            predArr=predNoise.detach().cpu().double().numpy()
-            noiseArr=noise.detach().cpu().double().numpy()
-            lossNP=np.mean(np.square(predArr-noiseArr))
             loss.backward()
             optimizer.step()
             scheduler.step()
