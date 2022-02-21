@@ -23,9 +23,9 @@
         "kernel_size": 3
     },
     "train": {
-        "lr": 1e-2,
+        "lr": 1e-6,
         "weigh_decay": 1e-8,
-        "batch_size": 1,
+        "batch_size": 6,
         "num_train": 100
     }
 }

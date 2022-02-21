@@ -375,7 +375,7 @@ for epoch_i in range(start_epoch+1, end_epoch+1):
         
         loss_all.backward()
 
-        torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=0.01) 
+        torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=0.01)
 
         optimizer.step()
 

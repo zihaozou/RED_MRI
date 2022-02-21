@@ -104,7 +104,7 @@ class plWrapper(pl.LightningModule):
         noisyImage = image+noise
         predNoise = self(noisyImage, create_graph=True, strict=True)
 
-        loss = torch.mean(torch.pow(predNoise.detach()-noise.detach(), 2))
+        loss = torch.mean(torch.pow(predNoise-noise, 2))
         with torch.no_grad():
             train_snr = compare_snr(image, noisyImage-predNoise)
         self.log("train_loss", loss, on_step=False,
@@ -288,7 +288,7 @@ if __name__ == "__main__":
         mode='max',
         filename='best_model')
     trainer = pl.Trainer(default_root_dir=join(root_path, run_name),
-                         gpus=0,
+                         gpus=numGPU,
                          max_epochs=numTrain,
                          num_sanity_val_steps=0,
                          check_val_every_n_epoch=1,
