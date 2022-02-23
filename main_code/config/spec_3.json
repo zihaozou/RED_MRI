@@ -15,9 +15,10 @@
         }
     },
     "cnn_model": {
-        "norm": "spec",
+        "type": "conv",
+        "bias": true,
         "pure": true,
-        "depth": 17,
+        "depth": 12,
         "num_chans": 64,
         "image_chans": 1,
         "kernel_size": 3

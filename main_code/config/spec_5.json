@@ -15,7 +15,8 @@
         }
     },
     "cnn_model": {
-        "norm": "spec",
+        "type": "conv",
+        "bias": true,
         "pure": true,
         "depth": 12,
         "num_chans": 64,
@@ -23,7 +24,7 @@
         "kernel_size": 3
     },
     "train": {
-        "lr": 1e-6,
+        "lr": 5e-4,
         "weigh_decay": 1e-8,
         "batch_size": 6,
         "num_train": 100

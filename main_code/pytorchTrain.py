@@ -97,7 +97,7 @@ if __name__ == '__main__':
                                  lr=lr, weight_decay=weighDecay)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(
         optimizer=optimizer, gamma=0.99)
-
+    lossFunc = torch.nn.SmoothL1Loss()
     #create log writer
     run_name = args.conf_path.split('/')[-1].split('.')[0]
     if args.jacob:
@@ -111,13 +111,27 @@ if __name__ == '__main__':
             optimizer.zero_grad()
             image = image.cuda()
             noise = torch.FloatTensor(image.size()).normal_(
-                mean=0, std=50./255.).cuda()
+                mean=0, std=5./255.).cuda()
             #noise = torch.zeros_like(image).cuda()
             noisyImage = image+noise
             noisyImage.requires_grad=True
             predNoise = jacob(noisyImage, create_graph=True, strict=True)
-            loss = nn.functional.mse_loss(predNoise, noise)
+            loss = lossFunc(predNoise, noise)
+
+            def backward_hook(grad):
+                print(grad.sum())
+            predNoise.register_hook(backward_hook)
             loss.backward()
+
+            grads_min = []
+            grads_max = []
+            for param in optimizer.param_groups[0]['params']:
+                if param.grad is not None:
+                    grads_min.append(torch.min(param.grad))
+                    grads_max.append(torch.max(param.grad))
+
+            grads_min = torch.min(torch.stack(grads_min, 0))
+            grads_max = torch.max(torch.stack(grads_max, 0))
             optimizer.step()
             scheduler.step()
             logger.add_scalar(tag='train_batch_loss',

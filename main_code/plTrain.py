@@ -20,7 +20,7 @@ from os import listdir
 from pytorch_lightning.callbacks import ModelCheckpoint
 from matplotlib.gridspec import GridSpec
 import argparse
-from model.promodel.realSN_models import DnCNN as realSNDnCNN
+from model.gspnp.network_unet import UNetRes
 parser = argparse.ArgumentParser("CNN Trainer")
 parser.add_argument('--no_jacob', dest='jacob', default=True, action='store_false',
                     help='jacobnet')
@@ -72,17 +72,14 @@ class plWrapper(pl.LightningModule):
                  ** kwargs: Any):
         super().__init__()
         self.save_hyperparameters()
-        if self.hparams['norm'] == 'spec':
+        if self.hparams['type'] == 'spec':
             self.dncnn = spDnCNN(depth=self.hparams['cnnDepth'],
                                  n_channels=self.hparams['cnnNumChannels'],
                                  image_channels=self.hparams['cnnImageChannels'],
                                  kernel_size=self.hparams['cnnKernelSize'],
-                                 pureCnn=self.hparams.pure)
-
-        elif self.hparams['norm'] == 'realspec':
-            self.dncnn = realSNDnCNN(1)
-        else:
-            self.dncnn = DnCNN(channels=1)
+                                 pureCnn=self.hparams.pure, bias=self.hparams['bias'])
+        elif self.hparams.type == 'unet':
+            self.dncnn = UNetRes(in_nc=1, out_nc=1, act_mode='E',nb=self.hparams['numBlock'],bias=self.hparams['bias'])
         if self.hparams['jacob']:
             self.jacob = jacobinNet(self.dncnn)
 
@@ -255,8 +252,10 @@ if __name__ == "__main__":
     cnnNumChans = config['cnn_model']['num_chans']
     cnnImageChans = config['cnn_model']['image_chans']
     cnnKernelSize = config['cnn_model']['kernel_size']
-    norm = config['cnn_model']['norm']
+    cnntype = config['cnn_model']['type']
     pure = config['cnn_model']['pure']
+    numBlock = config['cnn_model']['numBlock']
+    bias=config['cnn_model']['bias']
     # training
     lr = config['train']['lr']
     weighDecay = config['train']['weigh_decay']
@@ -274,13 +273,16 @@ if __name__ == "__main__":
                       weighDecay=weighDecay,
                       num_workers=numWorkers,
                       batch_size=batchSize,
-                      norm=norm,
+                      type=cnntype,
                       jacob=args.jacob,
-                      pure=pure)
+                      pure=pure,
+                      numBlock=numBlock,
+                      bias=bias)
     # create trainer
     run_name = args.conf_path.split('/')[-1].split('.')[0]
     if args.jacob:
         run_name += '_jacobian'
+    run_name += datetime.now().strftime("%H:%M:%S")
     ckptCallback = ModelCheckpoint(
         join(root_path, run_name, 'best_model'),
         save_top_k=1,
