@@ -72,7 +72,7 @@ class plWrapper(pl.LightningModule):
                  ** kwargs: Any):
         super().__init__()
         self.save_hyperparameters()
-        if self.hparams['type'] == 'spec':
+        if self.hparams['type'] == 'conv':
             self.dncnn = spDnCNN(depth=self.hparams['cnnDepth'],
                                  n_channels=self.hparams['cnnNumChannels'],
                                  image_channels=self.hparams['cnnImageChannels'],
