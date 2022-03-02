@@ -20,6 +20,7 @@ from skimage.metrics import peak_signal_noise_ratio as psnr
 from sklearn.feature_extraction.image import extract_patches_2d
 import multiprocessing
 from torch.nn import DataParallel as DP
+from einops import rearrange
 parser = argparse.ArgumentParser("CNN Trainer")
 parser.add_argument('--no_jacob', dest='jacob', default=True, action='store_false',
                     help='jacobnet')
@@ -58,7 +59,7 @@ class cnnTestDataset(Dataset):
 def dataPatch(dataPath, fileLst, savePath,tv):
     for im in fileLst:
         imArr = np.asarray(imopen(join(dataPath, im)))
-        patches = extract_patches_2d(imArr, (256, 256), max_patches=1)
+        patches = extract_patches_2d(imArr, (256, 256), max_patches=5)
         for i in range(patches.shape[0]):
             miniImg = torch.from_numpy(np.transpose(
                 patches[i, ...], (2, 0, 1))).float()/255.
@@ -86,7 +87,7 @@ def dataPreprocessMulti(trainPath, valPath, savePath,numProcess):
     jobs = []
     for i in range(numProcess):
         p = multiprocessing.Process(
-            target=dataPatch, args=(valPath, valLst[i], savePath,'val',))
+            target=dataPatch, args=(valPath, valLst[i], savePath, 'val',))
         jobs.append(p)
         p.start()
     for job in jobs:
@@ -127,14 +128,17 @@ if __name__ == '__main__':
     weighDecay = config['train']['weigh_decay']
     batchSize = config['train']['batch_size']
     numTrain = config['train']['num_train']
-    tempDataPath = '/export1/project/DIV2K_PATCHED'
     showEvery=5
+    device=config['GPUsetting']['gpu_index'][0]
+    #test image
+    testIm = torch.permute(torch.from_numpy(np.asarray(
+        imopen(join('DIV2K_valid_HR/0801.png')))).float()/255., (2, 0, 1))
     # create model
     jacob = jacobinNet(spDnCNN(depth=cnnDepth,
                                n_channels=cnnNumChans,
                                image_channels=cnnImageChans,
                                kernel_size=cnnKernelSize,
-                               pureCnn=pure, bias=bias)).cuda()
+                               pureCnn=pure, bias=bias)).cuda(device)
     if numGPU>1:
         jacob = DP(jacob, device_ids=GPUIndex)
     # create optimizer
@@ -148,12 +152,15 @@ if __name__ == '__main__':
     if args.jacob:
         run_name += '_jacobian'
     run_name += datetime.now().strftime("%H:%M:%S")
-    logger = SummaryWriter(log_dir=join(root_path, run_name),)
+    logger = SummaryWriter(log_dir=join(root_path, run_name))
+    mkdir(join('/export1/project/DIV2K_PATCHED', run_name))
+    tempDataPath = join('/export1/project/DIV2K_PATCHED',run_name)
     bestModel = None
     bestPSNR = np.NINF
+    dataPreprocessMulti(trainPath, valPath, tempDataPath, 10)
     for e in trange(numTrain):
         # create dataloader
-        dataPreprocessMulti(trainPath, valPath, tempDataPath,10)
+        
         trainLoader = DataLoader(cnnTrainDataset(
             join(tempDataPath, 'train'), SNR), batch_size=batchSize, pin_memory=True, num_workers=numWorkers, shuffle=True)
         valLoader = DataLoader(cnnTestDataset(join(tempDataPath, 'val'), SNR), batch_size=batchSize,
@@ -163,14 +170,15 @@ if __name__ == '__main__':
         # train
         for b,image in enumerate(pbar := tqdm(trainLoader)):
             optimizer.zero_grad()
-            image = image[:,0,:,:].cuda().unsqueeze(1)
+            image = image.cuda(device)
             noise = torch.FloatTensor(image.size()).normal_(
-                mean=0, std=3./255.).cuda()
+                mean=0, std=SNR/255.).cuda(device)
             #noise = torch.zeros_like(image).cuda()
             noisyImage = image+noise
             noisyImage.requires_grad = True
             predNoise = jacob(noisyImage, create_graph=True, strict=True)
             loss = lossFunc(predNoise, noise)
+            loss.backward()
             # grads_min = []
             # grads_max = []
             # for param in optimizer.param_groups[0]['params']:
@@ -186,7 +194,7 @@ if __name__ == '__main__':
                 with torch.no_grad():
                     trainPSNR = psnr(image.detach().cpu().numpy(),
                                     (noisyImage-predNoise).detach().cpu().numpy(), data_range=1)
-                    pbar.set_description("batch PSNR: %s" % trainPSNR)
+                    pbar.set_description("batch PSNR: %s,loss: %s" % (trainPSNR,loss.item()))
             epochLoss += loss.item()
         scheduler.step()
         logger.add_scalar(tag='train_loss',
@@ -194,9 +202,9 @@ if __name__ == '__main__':
         jacob.eval()
         valPSNR = 0
         for image in valLoader:
-            image = image[:, 0, :, :].cuda().unsqueeze(1)
+            image = image.cuda(device)
             noise = torch.FloatTensor(image.size()).normal_(
-                mean=0, std=3./255.).cuda()
+                mean=0, std=SNR/255.).cuda(device)
             noisyImage = image+noise
             noisyImage.requires_grad = True
             predNoise = jacob(noisyImage, create_graph=False, strict=False)
@@ -209,6 +217,7 @@ if __name__ == '__main__':
         if valPSNR > bestPSNR:
             bestModel = jacob.state_dict().copy()
             bestPSNR = valPSNR
-        dataPostProcess(tempDataPath)
+        
+        #dataPostProcess(tempDataPath)
     torch.save(bestModel, join(root_path, run_name, 'best.pt'))
     torch.save(jacob.state_dict(), join(root_path, run_name,'mostrecent.pt'))
