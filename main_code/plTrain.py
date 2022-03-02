@@ -82,7 +82,6 @@ class plWrapper(pl.LightningModule):
             self.dncnn = UNetRes(in_nc=1, out_nc=1, act_mode='E',nb=self.hparams['numBlock'],bias=self.hparams['bias'])
         if self.hparams['jacob']:
             self.jacob = jacobinNet(self.dncnn)
-
         previewImage = torch.from_numpy(np.asarray(
             Image.open(previewImagePath))).float().unsqueeze(0).unsqueeze(0)/255.0
         previewNoise = torch.FloatTensor(
@@ -288,12 +287,13 @@ if __name__ == "__main__":
         mode='max',
         filename='best_model')
     trainer = pl.Trainer(default_root_dir=join(root_path, run_name),
-                         gpus=numGPU,
+                         gpus=GPUIndex if numGPU>1 else numGPU,
                          max_epochs=numTrain,
                          num_sanity_val_steps=0,
                          check_val_every_n_epoch=1,
                          enable_checkpointing=True,
                          callbacks=[ckptCallback],
                          gradient_clip_val=0.01,
-                         gradient_clip_algorithm='value')
+                         gradient_clip_algorithm='value',
+                         strategy='ddp' if numGPU>1 else None)
     trainer.fit(model)
