@@ -254,7 +254,6 @@ if __name__ == "__main__":
     cnnKernelSize = config['cnn_model']['kernel_size']
     cnntype = config['cnn_model']['type']
     pure = config['cnn_model']['pure']
-    numBlock = config['cnn_model']['numBlock']
     bias=config['cnn_model']['bias']
     # training
     lr = config['train']['lr']
@@ -276,7 +275,6 @@ if __name__ == "__main__":
                       type=cnntype,
                       jacob=args.jacob,
                       pure=pure,
-                      numBlock=numBlock,
                       bias=bias)
     # create trainer
     run_name = args.conf_path.split('/')[-1].split('.')[0]
