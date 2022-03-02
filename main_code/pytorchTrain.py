@@ -1,4 +1,5 @@
 from datetime import datetime
+from genericpath import isdir
 import numpy as np
 import json
 import torch
@@ -9,12 +10,16 @@ import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
 import scipy.io as sio
 import numpy as np
-import PIL.Image as Image
+from PIL.Image import open as imopen
 from os.path import join
-from os import listdir
+from os import listdir, mkdir, system
 import argparse
 from tqdm import trange, tqdm
 from torch.utils.tensorboard.writer import SummaryWriter
+from skimage.metrics import peak_signal_noise_ratio as psnr
+from sklearn.feature_extraction.image import extract_patches_2d
+import multiprocessing
+from torch.nn import DataParallel as DP
 parser = argparse.ArgumentParser("CNN Trainer")
 parser.add_argument('--no_jacob', dest='jacob', default=True, action='store_false',
                     help='jacobnet')
@@ -24,30 +29,74 @@ parser.add_argument('--conf_path', type=str,
 
 class cnnTrainDataset(Dataset):
     def __init__(self, path, snr):
-        dataFile = sio.loadmat(path)
-        self.data = dataFile['labels']
+        self.fileLst = listdir(path)
         self.snr = snr
+        self.path = path
 
     def __getitem__(self, index):
-        image = torch.Tensor(self.data[index, :]).float().unsqueeze(0)
+        image = torch.load(join(self.path, self.fileLst[index]))
         return image
 
     def __len__(self):
-        return self.data.shape[0]
+        return len(self.fileLst)
 
 
 class cnnTestDataset(Dataset):
     def __init__(self, path, snr):
-        self.dataPath = path
+        self.fileLst = listdir(path)
         self.snr = snr
+        self.path = path
 
     def __getitem__(self, index):
-        image = torch.from_numpy(np.asarray(Image.open(
-            join(self.dataPath, f"brain_test_{index+1:02d}.png")))).float().unsqueeze(0)/255.0
+        image = torch.load(join(self.path, self.fileLst[index]))
         return image
 
     def __len__(self):
-        return len(listdir(self.dataPath))
+        return len(self.fileLst)
+
+
+def dataPatch(dataPath, fileLst, savePath,tv):
+    for im in fileLst:
+        imArr = np.asarray(imopen(join(dataPath, im)))
+        patches = extract_patches_2d(imArr, (256, 256), max_patches=1)
+        for i in range(patches.shape[0]):
+            miniImg = torch.from_numpy(np.transpose(
+                patches[i, ...], (2, 0, 1))).float()/255.
+            name = im.split('.')[0]+'_'+str(i)+'.pt'
+            torch.save(miniImg, join(savePath, tv, name))
+
+
+def dataPreprocessMulti(trainPath, valPath, savePath,numProcess):
+    if isdir(join(savePath, 'train')):
+        system("rm %s -r" % (join(savePath, 'train')))
+    if isdir(join(savePath, 'val')):
+        system("rm %s -r" % (join(savePath, 'val')))
+    mkdir(join(savePath, 'train'))
+    trainLst=np.array_split(np.asarray(listdir(trainPath)),numProcess)
+    jobs = []
+    for i in range(numProcess):
+        p = multiprocessing.Process(
+            target=dataPatch, args=(trainPath, trainLst[i], savePath,'train',))
+        jobs.append(p)
+        p.start()
+    for job in jobs:
+        job.join()
+    mkdir(join(savePath, 'val'))
+    valLst = np.array_split(np.asarray(listdir(valPath)), numProcess)
+    jobs = []
+    for i in range(numProcess):
+        p = multiprocessing.Process(
+            target=dataPatch, args=(valPath, valLst[i], savePath,'val',))
+        jobs.append(p)
+        p.start()
+    for job in jobs:
+        job.join()
+    
+
+
+def dataPostProcess(savePath):
+    system("rm %s -r" % (join(savePath, 'train')))
+    system("rm %s -r" % (join(savePath, 'val')))
 
 
 if __name__ == '__main__':
@@ -71,72 +120,95 @@ if __name__ == '__main__':
     cnnNumChans = config['cnn_model']['num_chans']
     cnnImageChans = config['cnn_model']['image_chans']
     cnnKernelSize = config['cnn_model']['kernel_size']
-    norm = config['cnn_model']['norm']
     pure = config['cnn_model']['pure']
+    bias = config['cnn_model']['bias']
     # training
     lr = config['train']['lr']
     weighDecay = config['train']['weigh_decay']
     batchSize = config['train']['batch_size']
     numTrain = config['train']['num_train']
-
-    #create model
+    tempDataPath = '/export1/project/DIV2K_PATCHED'
+    showEvery=5
+    # create model
     jacob = jacobinNet(spDnCNN(depth=cnnDepth,
                                n_channels=cnnNumChans,
                                image_channels=cnnImageChans,
                                kernel_size=cnnKernelSize,
-                               pureCnn=pure)).cuda()
-
-    #create dataloader
-    trainLoader = DataLoader(cnnTrainDataset(
-        trainPath, SNR), batch_size=batchSize, pin_memory=True, num_workers=numWorkers, shuffle=True)
-    valLoader = DataLoader(cnnTestDataset(valPath, SNR), batch_size=batchSize,
-                           pin_memory=True, num_workers=numWorkers, shuffle=False)
-
-    #create optimizer
+                               pureCnn=pure, bias=bias)).cuda()
+    if numGPU>1:
+        jacob = DP(jacob, device_ids=GPUIndex)
+    # create optimizer
     optimizer = torch.optim.Adam(jacob.parameters(),
                                  lr=lr, weight_decay=weighDecay)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(
         optimizer=optimizer, gamma=0.99)
-    lossFunc = torch.nn.SmoothL1Loss()
-    #create log writer
+    lossFunc = torch.nn.MSELoss()
+    # create log writer
     run_name = args.conf_path.split('/')[-1].split('.')[0]
     if args.jacob:
         run_name += '_jacobian'
     run_name += datetime.now().strftime("%H:%M:%S")
     logger = SummaryWriter(log_dir=join(root_path, run_name),)
+    bestModel = None
+    bestPSNR = np.NINF
     for e in trange(numTrain):
+        # create dataloader
+        dataPreprocessMulti(trainPath, valPath, tempDataPath,10)
+        trainLoader = DataLoader(cnnTrainDataset(
+            join(tempDataPath, 'train'), SNR), batch_size=batchSize, pin_memory=True, num_workers=numWorkers, shuffle=True)
+        valLoader = DataLoader(cnnTestDataset(join(tempDataPath, 'val'), SNR), batch_size=batchSize,
+                               pin_memory=True, num_workers=numWorkers, shuffle=False)
         jacob.train()
-        epochLoss=0
-        for b, image in enumerate(tqdm(trainLoader)):
+        epochLoss = 0
+        # train
+        for b,image in enumerate(pbar := tqdm(trainLoader)):
             optimizer.zero_grad()
-            image = image.cuda()
+            image = image[:,0,:,:].cuda().unsqueeze(1)
             noise = torch.FloatTensor(image.size()).normal_(
-                mean=0, std=5./255.).cuda()
+                mean=0, std=3./255.).cuda()
             #noise = torch.zeros_like(image).cuda()
             noisyImage = image+noise
-            noisyImage.requires_grad=True
+            noisyImage.requires_grad = True
             predNoise = jacob(noisyImage, create_graph=True, strict=True)
             loss = lossFunc(predNoise, noise)
+            # grads_min = []
+            # grads_max = []
+            # for param in optimizer.param_groups[0]['params']:
+            #     if param.grad is not None:
+            #         grads_min.append(torch.min(param.grad))
+            #         grads_max.append(torch.max(param.grad))
 
-            def backward_hook(grad):
-                print(grad.sum())
-            predNoise.register_hook(backward_hook)
-            loss.backward()
-
-            grads_min = []
-            grads_max = []
-            for param in optimizer.param_groups[0]['params']:
-                if param.grad is not None:
-                    grads_min.append(torch.min(param.grad))
-                    grads_max.append(torch.max(param.grad))
-
-            grads_min = torch.min(torch.stack(grads_min, 0))
-            grads_max = torch.max(torch.stack(grads_max, 0))
+            # grads_min = torch.min(torch.stack(grads_min, 0))
+            # grads_max = torch.max(torch.stack(grads_max, 0))
             optimizer.step()
-            scheduler.step()
-            logger.add_scalar(tag='train_batch_loss',
-                            scalar_value=loss.item(), global_step=b)
-            epochLoss+=loss.item()
+            
+            if b%showEvery==0:
+                with torch.no_grad():
+                    trainPSNR = psnr(image.detach().cpu().numpy(),
+                                    (noisyImage-predNoise).detach().cpu().numpy(), data_range=1)
+                    pbar.set_description("batch PSNR: %s" % trainPSNR)
+            epochLoss += loss.item()
+        scheduler.step()
         logger.add_scalar(tag='train_loss',
-                            scalar_value=epochLoss/len(trainLoader.dataset), global_step=e)
-    torch.save(jacob.state_dict(),'test.pt')
+                          scalar_value=epochLoss/len(trainLoader), global_step=e)
+        jacob.eval()
+        valPSNR = 0
+        for image in valLoader:
+            image = image[:, 0, :, :].cuda().unsqueeze(1)
+            noise = torch.FloatTensor(image.size()).normal_(
+                mean=0, std=3./255.).cuda()
+            noisyImage = image+noise
+            noisyImage.requires_grad = True
+            predNoise = jacob(noisyImage, create_graph=False, strict=False)
+            with torch.no_grad():
+                valPSNR += psnr(image.detach().cpu().numpy(),
+                                (noisyImage-predNoise).detach().cpu().numpy(), data_range=1)
+        valPSNR /= len(valLoader)
+        logger.add_scalar(tag='val_psnr',
+                          scalar_value=valPSNR, global_step=e)
+        if valPSNR > bestPSNR:
+            bestModel = jacob.state_dict().copy()
+            bestPSNR = valPSNR
+        dataPostProcess(tempDataPath)
+    torch.save(bestModel, join(root_path, run_name, 'best.pt'))
+    torch.save(jacob.state_dict(), join(root_path, run_name,'mostrecent.pt'))

@@ -281,3 +281,20 @@ def psnr(img1, img2):
         return 100
     PIXEL_MAX = 1.0
     return 20 * math.log10(PIXEL_MAX / math.sqrt(mse))    
+
+
+def patches_from_image(img, p_size=512, p_overlap=64, p_max=800):
+    w, h = img.shape[:2]
+    patches = []
+    if w > p_max and h > p_max:
+        w1 = list(np.arange(0, w-p_size, p_size-p_overlap, dtype=np.int))
+        h1 = list(np.arange(0, h-p_size, p_size-p_overlap, dtype=np.int))
+        w1.append(w-p_size)
+        h1.append(h-p_size)
+        for i in w1:
+            for j in h1:
+                patches.append(img[i:i+p_size, j:j+p_size, :])
+    else:
+        patches.append(img)
+
+    return patches

@@ -1,17 +1,22 @@
 {
     "root_path": "logs",
     "GPUsetting": {
-        "num_gpus": 1,
-        "gpu_index": "0"
+        "num_gpus": 4,
+        "gpu_index": [
+            0,
+            1,
+            2,
+            3
+        ]
     },
     "dataset": {
         "snr": 3.0,
         "num_workers": 8,
         "trainset": {
-            "path": "Dataset/BrainImages_train/Training_BrainImages_256x256_100.mat"
+            "path": "/export1/project/Data_shirin/Data/DIV2K"
         },
         "valset": {
-            "path": "Dataset/BrainImages_test"
+            "path": "DIV2K_valid_HR"
         }
     },
     "cnn_model": {
@@ -26,7 +31,7 @@
     "train": {
         "lr": 5e-4,
         "weigh_decay": 1e-8,
-        "batch_size": 6,
+        "batch_size": 16,
         "num_train": 100
     }
 }

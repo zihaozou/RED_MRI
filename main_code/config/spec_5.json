@@ -20,7 +20,7 @@
         "pure": true,
         "depth": 12,
         "num_chans": 64,
-        "image_chans": 1,
+        "image_chans": 3,
         "kernel_size": 3
     },
     "train": {
