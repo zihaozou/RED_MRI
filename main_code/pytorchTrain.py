@@ -26,7 +26,8 @@ parser.add_argument('--no_jacob', dest='jacob', default=True, action='store_fals
                     help='jacobnet')
 parser.add_argument('--conf_path', type=str,
                     help='config.json path')
-
+parser.add_argument('--warm_up', type=str,default=None,
+                    help='load pretrained state dict')
 
 class cnnTrainDataset(Dataset):
     def __init__(self, path, snr):
@@ -147,8 +148,14 @@ if __name__ == '__main__':
     scheduler = torch.optim.lr_scheduler.ExponentialLR(
         optimizer=optimizer, gamma=0.99)
     lossFunc = torch.nn.MSELoss()
+    #
+    if args.warm_up is not None:
+        warmModel=torch.load(args.warm_up)
+        jacob.load_state_dict(warmModel['model'])
+        optimizer.load_state_dict(warmModel['optimizer'])
+        scheduler.load_state_dict(warmModel['scheduler'])
     # create log writer
-    run_name = args.conf_path.split('/')[-1].split('.')[0]
+    run_name = args.conf_path.split('/')[-1].split('.')[0]+'_color'
     if args.jacob:
         run_name += '_jacobian'
     run_name += datetime.now().strftime("%H:%M:%S")
@@ -194,7 +201,7 @@ if __name__ == '__main__':
                 with torch.no_grad():
                     trainPSNR = psnr(image.detach().cpu().numpy(),
                                     (noisyImage-predNoise).detach().cpu().numpy(), data_range=1)
-                    pbar.set_description("batch PSNR: %s,loss: %s" % (trainPSNR,loss.item()))
+                    pbar.set_description("epoch %d, PSNR: %.2f,loss: %.5e" % (e,trainPSNR,loss.item()))
             epochLoss += loss.item()
         scheduler.step()
         logger.add_scalar(tag='train_loss',
@@ -215,9 +222,13 @@ if __name__ == '__main__':
         logger.add_scalar(tag='val_psnr',
                           scalar_value=valPSNR, global_step=e)
         if valPSNR > bestPSNR:
-            bestModel = jacob.state_dict().copy()
+            bestModel = {'model': jacob.state_dict().copy(), 'optimizer': optimizer.state_dict(
+            ).copy(), 'scheduler': scheduler.state_dict().copy()}
             bestPSNR = valPSNR
         
-        #dataPostProcess(tempDataPath)
+    dataPostProcess(tempDataPath)
+    mostrecentModel={'model': jacob.state_dict().copy(), 'optimizer': optimizer.state_dict(
+            ).copy(), 'scheduler': scheduler.state_dict().copy()
+    }
     torch.save(bestModel, join(root_path, run_name, 'best.pt'))
-    torch.save(jacob.state_dict(), join(root_path, run_name,'mostrecent.pt'))
+    torch.save(mostrecentModel, join(root_path, run_name,'mostrecent.pt'))
