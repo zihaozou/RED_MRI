@@ -1,7 +1,7 @@
 {
     "root_path": "logs",
     "GPUsetting": {
-        "num_gpus": 1,
+        "num_gpus": 2,
         "gpu_index": [
             2,
             3
