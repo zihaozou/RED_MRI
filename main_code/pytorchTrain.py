@@ -21,6 +21,8 @@ from sklearn.feature_extraction.image import extract_patches_2d
 import multiprocessing
 from torch.nn import DataParallel as DP
 from einops import rearrange
+from torchvision.transforms.functional import crop
+import matplotlib.pyplot as plt
 parser = argparse.ArgumentParser("CNN Trainer")
 parser.add_argument('--no_jacob', dest='jacob', default=True, action='store_false',
                     help='jacobnet')
@@ -56,49 +58,115 @@ class cnnTestDataset(Dataset):
     def __len__(self):
         return len(self.fileLst)
 
-
-def dataPatch(dataPath, fileLst, savePath,tv):
-    for im in fileLst:
-        imArr = np.asarray(imopen(join(dataPath, im)))
-        patches = extract_patches_2d(imArr, (256, 256), max_patches=5)
-        for i in range(patches.shape[0]):
-            miniImg = torch.from_numpy(np.transpose(
-                patches[i, ...], (2, 0, 1))).float()/255.
-            name = im.split('.')[0]+'_'+str(i)+'.pt'
-            torch.save(miniImg, join(savePath, tv, name))
-
-
-def dataPreprocessMulti(trainPath, valPath, savePath,numProcess):
-    if isdir(join(savePath, 'train')):
-        system("rm %s -r" % (join(savePath, 'train')))
-    if isdir(join(savePath, 'val')):
-        system("rm %s -r" % (join(savePath, 'val')))
-    mkdir(join(savePath, 'train'))
-    trainLst=np.array_split(np.asarray(listdir(trainPath)),numProcess)
-    jobs = []
-    for i in range(numProcess):
-        p = multiprocessing.Process(
-            target=dataPatch, args=(trainPath, trainLst[i], savePath,'train',))
-        jobs.append(p)
-        p.start()
-    for job in jobs:
-        job.join()
-    mkdir(join(savePath, 'val'))
-    valLst = np.array_split(np.asarray(listdir(valPath)), numProcess)
-    jobs = []
-    for i in range(numProcess):
-        p = multiprocessing.Process(
-            target=dataPatch, args=(valPath, valLst[i], savePath, 'val',))
-        jobs.append(p)
-        p.start()
-    for job in jobs:
-        job.join()
+class dataPreparer(object):
+    def __init__(self, trainPath, valPath, savePath, numProcess,sizeMin,sizeMax) -> None:
+        self.trainPath=trainPath
+        self.valPath=valPath
+        self.savePath=savePath
+        self.numP=numProcess
+        self.tempFolderName=['0','1']
+        self.sizeRange=(sizeMin,sizeMax)
+        if isdir(join(self.savePath, self.tempFolderName[0])):
+            system("rm %s -r" % (join(self.savePath, self.tempFolderName[0])))
+        mkdir(join(self.savePath, self.tempFolderName[0]))
+        if isdir(join(self.savePath, self.tempFolderName[1])):
+            system("rm %s -r" % (join(self.savePath, self.tempFolderName[1])))
+        mkdir(join(self.savePath, self.tempFolderName[1]))
+        self.curr=0
+    def start(self):
+        self.data_runner()
+    def contin(self):
+        folder=self.getCurrFolder
+        pid = multiprocessing.Process(target=self.data_runner)
+        pid.start()
+        self.pid=pid
+        return folder
+    def wait(self):
+        self.pid.join()
+    def cleanUp(self):
+        if isdir(join(self.savePath, self.tempFolderName[0])):
+            system("rm %s -r" % (join(self.savePath, self.tempFolderName[0])))
+        if isdir(join(self.savePath, self.tempFolderName[1])):
+            system("rm %s -r" % (join(self.savePath, self.tempFolderName[1])))
     
+    @property
+    def getNextFolder(self):
+        self.curr=(self.curr+1)%2
+        return join(self.savePath,self.tempFolderName[self.curr])
+
+    @property
+    def getCurrFolder(self):
+        return join(self.savePath, self.tempFolderName[self.curr])
+
+    def data_runner(self):
+        size = np.random.randint(*self.sizeRange)
+        currfolder = self.getNextFolder
+        if isdir(join(currfolder,'train')):
+            system("rm %s -r" % (join(currfolder, 'train')))
+        if isdir(join(self.savePath, currfolder, 'val')):
+            system("rm %s -r" % (join(currfolder, 'val')))
+        mkdir(join(currfolder, 'train'))
+        trainLst = np.array_split(np.asarray(listdir(self.trainPath)), self.numP)
+        jobs = []
+        for i in range(self.numP):
+            p = multiprocessing.Process(
+                target=self.dataPatch, args=(self.trainPath, trainLst[i], join(currfolder, 'train'),size,))
+            jobs.append(p)
+            p.start()
+        for job in jobs:
+            job.join()
+        mkdir(join(currfolder, 'val'))
+        valLst = np.array_split(np.asarray(listdir(self.valPath)), self.numP)
+        jobs = []
+        for i in range(self.numP):
+            p = multiprocessing.Process(
+                target=self.dataPatch, args=(self.valPath, valLst[i], join(currfolder, 'val'),size,))
+            jobs.append(p)
+            p.start()
+        for job in jobs:
+            job.join()
+
+    def dataPatch(self,dataPath, fileLst, savePath,size):
+        for im in fileLst:
+            imArr = np.asarray(imopen(join(dataPath, im)))
+            patches = extract_patches_2d(imArr, (size,size), max_patches=3)
+            for i in range(patches.shape[0]):
+                miniImg = torch.from_numpy(np.transpose(
+                    patches[i, ...], (2, 0, 1))).float()/255.
+                name = im.split('.')[0]+'_'+str(i)+'.pt'
+                torch.save(miniImg, join(savePath, name))
+
+def randomCrop(img,size):
+    assert(size<=img.shape[2])
+    assert(size<=img.shape[3])
+    x=np.random.randint(low=0,high=img.shape[2]-size)
+    y = np.random.randint(low=0, high=img.shape[3]-size)
+    return crop(img,x,y,size,size).detach()
+
+def preview(img,model,writer,snr,device,e):
+    cropLst=[256,512,1024]
+    fig, axs = plt.subplots(nrows=3, ncols=2, constrained_layout=True)
+    for i,s in enumerate(cropLst):
+        cropped=randomCrop(img,s)
+        croppedN =(cropped+ torch.FloatTensor(cropped.size()).normal_(
+            mean=0, std=snr/255.)).detach()
+        croppedN.requires_grad_()
+        predNoise=model(croppedN.to(device),False,False).detach().cpu()
+        recon=torch.clamp(croppedN-predNoise,min=0,max=1).detach()
+        testPSNR=psnr(cropped.numpy(),recon.numpy(),data_range=1)
+        noisyPSNR = psnr(cropped.numpy(), torch.clamp(
+            croppedN, min=0, max=1).detach().numpy(), data_range=1)
+        axs[i,0].imshow(recon.squeeze().permute((1,2,0)))
+        axs[i,1].imshow(cropped.squeeze().permute((1,2,0)))
+        axs[i,0].text(2,30,f'{testPSNR:.2f}')
+        axs[i, 1].text(2, 30, f'{noisyPSNR:.2f}')
+    writer.add_figure('preview',fig,e)
+    plt.close(fig)
+        
+        
 
 
-def dataPostProcess(savePath):
-    system("rm %s -r" % (join(savePath, 'train')))
-    system("rm %s -r" % (join(savePath, 'val')))
+
 
 
 if __name__ == '__main__':
@@ -116,7 +184,6 @@ if __name__ == '__main__':
     valPath = config['dataset']['valset']['path']
     SNR = config['dataset']['snr']
     numWorkers = config['dataset']['num_workers']
-
     # model
     cnnDepth = config['cnn_model']['depth']
     cnnNumChans = config['cnn_model']['num_chans']
@@ -133,7 +200,7 @@ if __name__ == '__main__':
     device=config['GPUsetting']['gpu_index'][0]
     #test image
     testIm = torch.permute(torch.from_numpy(np.asarray(
-        imopen(join('DIV2K_valid_HR/0801.png')))).float()/255., (2, 0, 1))
+        imopen(join('DIV2K_valid_HR/0801.png')))).float()/255., (2, 0, 1)).unsqueeze(0)
     # create model
     jacob = jacobinNet(spDnCNN(depth=cnnDepth,
                                n_channels=cnnNumChans,
@@ -164,17 +231,19 @@ if __name__ == '__main__':
     tempDataPath = join('/export1/project/DIV2K_PATCHED',run_name)
     bestModel = None
     bestPSNR = np.NINF
-    dataPreprocessMulti(trainPath, valPath, tempDataPath, 10)
+
+    dataPre=dataPreparer(trainPath,valPath,tempDataPath,5,128,512)
+    dataPre.start()
     for e in trange(numTrain):
         # create dataloader
-        
+        folder=dataPre.contin()
         trainLoader = DataLoader(cnnTrainDataset(
-            join(tempDataPath, 'train'), SNR), batch_size=batchSize, pin_memory=True, num_workers=numWorkers, shuffle=True)
-        valLoader = DataLoader(cnnTestDataset(join(tempDataPath, 'val'), SNR), batch_size=batchSize,
-                               pin_memory=True, num_workers=numWorkers, shuffle=False)
+            join(folder, 'train'), SNR), batch_size=batchSize, pin_memory=True, num_workers=numWorkers, shuffle=True,drop_last=True)
+        valLoader = DataLoader(cnnTestDataset(join(folder, 'val'), SNR), batch_size=batchSize,
+                               pin_memory=True, num_workers=numWorkers, shuffle=False, drop_last=True)
         jacob.train()
         epochLoss = 0
-        # train
+        #train
         for b,image in enumerate(pbar := tqdm(trainLoader)):
             optimizer.zero_grad()
             image = image.cuda(device)
@@ -186,15 +255,6 @@ if __name__ == '__main__':
             predNoise = jacob(noisyImage, create_graph=True, strict=True)
             loss = lossFunc(predNoise, noise)
             loss.backward()
-            # grads_min = []
-            # grads_max = []
-            # for param in optimizer.param_groups[0]['params']:
-            #     if param.grad is not None:
-            #         grads_min.append(torch.min(param.grad))
-            #         grads_max.append(torch.max(param.grad))
-
-            # grads_min = torch.min(torch.stack(grads_min, 0))
-            # grads_max = torch.max(torch.stack(grads_max, 0))
             optimizer.step()
             
             if b%showEvery==0:
@@ -221,12 +281,14 @@ if __name__ == '__main__':
         valPSNR /= len(valLoader)
         logger.add_scalar(tag='val_psnr',
                           scalar_value=valPSNR, global_step=e)
+        
         if valPSNR > bestPSNR:
             bestModel = {'model': jacob.state_dict().copy(), 'optimizer': optimizer.state_dict(
             ).copy(), 'scheduler': scheduler.state_dict().copy()}
             bestPSNR = valPSNR
-        
-    dataPostProcess(tempDataPath)
+        preview(testIm,jacob,logger,SNR,device,e)
+        dataPre.wait()
+    dataPre.cleanUp()
     mostrecentModel={'model': jacob.state_dict().copy(), 'optimizer': optimizer.state_dict(
             ).copy(), 'scheduler': scheduler.state_dict().copy()
     }
