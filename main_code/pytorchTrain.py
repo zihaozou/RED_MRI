@@ -232,7 +232,7 @@ if __name__ == '__main__':
     bestModel = None
     bestPSNR = np.NINF
 
-    dataPre=dataPreparer(trainPath,valPath,tempDataPath,5,128,512)
+    dataPre=dataPreparer(trainPath,valPath,tempDataPath,5,64,512)
     dataPre.start()
     for e in trange(numTrain):
         # create dataloader
