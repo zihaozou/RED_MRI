@@ -4,7 +4,9 @@
         "num_gpus": 2,
         "gpu_index": [
             0,
-            1
+            1,
+            2,
+            3
         ]
     },
     "dataset": {
@@ -29,7 +31,7 @@
     "train": {
         "lr": 5e-4,
         "weigh_decay": 1e-8,
-        "batch_size": 20,
+        "batch_size": 4,
         "num_train": 200
     }
 }

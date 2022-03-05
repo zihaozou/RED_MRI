@@ -5,6 +5,7 @@ import json
 import torch
 import torch.nn as nn
 from model.cnn import DnCNN as spDnCNN
+from model.gspnp.network_unet import UNetRes
 from model.jacob import jacobinNet
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
@@ -202,11 +203,12 @@ if __name__ == '__main__':
     testIm = torch.permute(torch.from_numpy(np.asarray(
         imopen(join('DIV2K_valid_HR/0801.png')))).float()/255., (2, 0, 1)).unsqueeze(0)
     # create model
-    jacob = jacobinNet(spDnCNN(depth=cnnDepth,
-                               n_channels=cnnNumChans,
-                               image_channels=cnnImageChans,
-                               kernel_size=cnnKernelSize,
-                               pureCnn=pure, bias=bias)).cuda(device)
+    # jacob = jacobinNet(spDnCNN(depth=cnnDepth,
+    #                            n_channels=cnnNumChans,
+    #                            image_channels=cnnImageChans,
+    #                            kernel_size=cnnKernelSize,
+    #                            pureCnn=pure, bias=bias)).cuda(device)
+    jacob = jacobinNet(UNetRes(in_nc=cnnImageChans,out_nc=cnnImageChans,nb=2,act_mode='E'))
     if numGPU>1:
         jacob = DP(jacob, device_ids=GPUIndex)
     # create optimizer
@@ -218,14 +220,14 @@ if __name__ == '__main__':
     #
     if args.warm_up is not None:
         warmModel=torch.load(args.warm_up)
-        jacob.load_state_dict(warmModel['model'])
+        jacob.module.load_state_dict(warmModel['model'])
         optimizer.load_state_dict(warmModel['optimizer'])
         scheduler.load_state_dict(warmModel['scheduler'])
     # create log writer
     run_name = args.conf_path.split('/')[-1].split('.')[0]+'_color'
     if args.jacob:
         run_name += '_jacobian'
-    run_name += datetime.now().strftime("%H:%M:%S")
+    run_name += datetime.now().strftime("%D%H:%M:%S").replace('/','_')
     logger = SummaryWriter(log_dir=join(root_path, run_name))
     mkdir(join('/export1/project/DIV2K_PATCHED', run_name))
     tempDataPath = join('/export1/project/DIV2K_PATCHED',run_name)
@@ -283,13 +285,13 @@ if __name__ == '__main__':
                           scalar_value=valPSNR, global_step=e)
         
         if valPSNR > bestPSNR:
-            bestModel = {'model': jacob.state_dict().copy(), 'optimizer': optimizer.state_dict(
+            bestModel = {'model': jacob.module.state_dict().copy(), 'optimizer': optimizer.state_dict(
             ).copy(), 'scheduler': scheduler.state_dict().copy()}
             bestPSNR = valPSNR
         preview(testIm,jacob,logger,SNR,device,e)
         dataPre.wait()
     dataPre.cleanUp()
-    mostrecentModel={'model': jacob.state_dict().copy(), 'optimizer': optimizer.state_dict(
+    mostrecentModel={'model': jacob.module.state_dict().copy(), 'optimizer': optimizer.state_dict(
             ).copy(), 'scheduler': scheduler.state_dict().copy()
     }
     torch.save(bestModel, join(root_path, run_name, 'best.pt'))

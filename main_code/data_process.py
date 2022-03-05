@@ -15,7 +15,7 @@ testImage=np.asarray(imopen(join(imPath,imageList[0])))
 patches=extract_patches_2d(testImage,(256,256),max_patches=5)
 model=jacobinNet(spDnCNN(image_channels=3,pureCnn=True)).cuda()
 pretrained = torch.load(
-    '/export/project/jiaming.liu/Projects/Zihao/RED_MRI/logs/spec_2_color_jacobian13:48:10/best.pt')
+    '/export/project/jiaming.liu/Projects/Zihao/RED_MRI/logs/spec_5_multi_color_jacobian01:12:14/best.pt')
 model.load_state_dict(pretrained['model'])
 plt.imsave('test.png',patches[0,...])
 x = torch.from_numpy(patches[0,...]).float().permute((2,0,1)).unsqueeze(0).cuda()/255.

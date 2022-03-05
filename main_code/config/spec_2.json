@@ -3,6 +3,8 @@
     "GPUsetting": {
         "num_gpus": 2,
         "gpu_index": [
+            0,
+            1,
             2,
             3
         ]
@@ -27,9 +29,9 @@
         "kernel_size": 3
     },
     "train": {
-        "lr": 5e-4,
+        "lr": 1e-4,
         "weigh_decay": 1e-8,
-        "batch_size": 10,
-        "num_train": 200
+        "batch_size": 4,
+        "num_train": 10
     }
 }
