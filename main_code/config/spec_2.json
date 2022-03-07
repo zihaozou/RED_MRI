@@ -32,6 +32,6 @@
         "lr": 1e-4,
         "weigh_decay": 1e-8,
         "batch_size": 4,
-        "num_train": 10
+        "num_train": 100
     }
 }

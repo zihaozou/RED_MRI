@@ -24,6 +24,7 @@ from torch.nn import DataParallel as DP
 from einops import rearrange
 from torchvision.transforms.functional import crop
 import matplotlib.pyplot as plt
+from shutil import copyfile
 parser = argparse.ArgumentParser("CNN Trainer")
 parser.add_argument('--no_jacob', dest='jacob', default=True, action='store_false',
                     help='jacobnet')
@@ -100,7 +101,7 @@ class dataPreparer(object):
         return join(self.savePath, self.tempFolderName[self.curr])
 
     def data_runner(self):
-        size = np.random.randint(*self.sizeRange)
+        size = 256
         currfolder = self.getNextFolder
         if isdir(join(currfolder,'train')):
             system("rm %s -r" % (join(currfolder, 'train')))
@@ -130,6 +131,7 @@ class dataPreparer(object):
     def dataPatch(self,dataPath, fileLst, savePath,size):
         for im in fileLst:
             imArr = np.asarray(imopen(join(dataPath, im)))
+
             patches = extract_patches_2d(imArr, (size,size), max_patches=3)
             for i in range(patches.shape[0]):
                 miniImg = torch.from_numpy(np.transpose(
@@ -186,6 +188,7 @@ if __name__ == '__main__':
     SNR = config['dataset']['snr']
     numWorkers = config['dataset']['num_workers']
     # model
+    modelType = config['cnn_model']['type']
     cnnDepth = config['cnn_model']['depth']
     cnnNumChans = config['cnn_model']['num_chans']
     cnnImageChans = config['cnn_model']['image_chans']
@@ -203,12 +206,15 @@ if __name__ == '__main__':
     testIm = torch.permute(torch.from_numpy(np.asarray(
         imopen(join('DIV2K_valid_HR/0801.png')))).float()/255., (2, 0, 1)).unsqueeze(0)
     # create model
-    # jacob = jacobinNet(spDnCNN(depth=cnnDepth,
-    #                            n_channels=cnnNumChans,
-    #                            image_channels=cnnImageChans,
-    #                            kernel_size=cnnKernelSize,
-    #                            pureCnn=pure, bias=bias)).cuda(device)
-    jacob = jacobinNet(UNetRes(in_nc=cnnImageChans,out_nc=cnnImageChans,nb=2,act_mode='E'))
+    if modelType=='conv':
+        jacob = jacobinNet(spDnCNN(depth=cnnDepth,
+                                n_channels=cnnNumChans,
+                                image_channels=cnnImageChans,
+                                kernel_size=cnnKernelSize,
+                                pureCnn=pure, bias=bias)).cuda(device)
+    elif modelType=='unet':
+        jacob = jacobinNet(UNetRes(in_nc=cnnImageChans,
+                        out_nc=cnnImageChans, nb=2, act_mode='E',nc=cnnDepth)).cuda(device)
     if numGPU>1:
         jacob = DP(jacob, device_ids=GPUIndex)
     # create optimizer
@@ -229,6 +235,7 @@ if __name__ == '__main__':
         run_name += '_jacobian'
     run_name += datetime.now().strftime("%D%H:%M:%S").replace('/','_')
     logger = SummaryWriter(log_dir=join(root_path, run_name))
+    copyfile(args.conf_path, join(root_path, run_name, args.conf_path.split('/')[-1]))
     mkdir(join('/export1/project/DIV2K_PATCHED', run_name))
     tempDataPath = join('/export1/project/DIV2K_PATCHED',run_name)
     bestModel = None
@@ -270,19 +277,17 @@ if __name__ == '__main__':
                           scalar_value=epochLoss/len(trainLoader), global_step=e)
         jacob.eval()
         valPSNR = 0
-        for image in valLoader:
-            image = image.cuda(device)
+        for image in valLoader:   
             noise = torch.FloatTensor(image.size()).normal_(
-                mean=0, std=SNR/255.).cuda(device)
+                mean=0, std=SNR/255.)
             noisyImage = image+noise
             noisyImage.requires_grad = True
-            predNoise = jacob(noisyImage, create_graph=False, strict=False)
+            predNoise = jacob(noisyImage.cuda(device), create_graph=False, strict=False).cpu()
             with torch.no_grad():
-                valPSNR += psnr(image.detach().cpu().numpy(),
-                                (noisyImage-predNoise).detach().cpu().numpy(), data_range=1)
+                valPSNR += psnr(image.detach().numpy(),
+                                (noisyImage-predNoise).detach().numpy(), data_range=1)
         valPSNR /= len(valLoader)
-        logger.add_scalar(tag='val_psnr',
-                          scalar_value=valPSNR, global_step=e)
+        logger.add_scalar(tag='val_psnr',scalar_value=valPSNR, global_step=e)
         
         if valPSNR > bestPSNR:
             bestModel = {'model': jacob.module.state_dict().copy(), 'optimizer': optimizer.state_dict(
@@ -294,5 +299,9 @@ if __name__ == '__main__':
     mostrecentModel={'model': jacob.module.state_dict().copy(), 'optimizer': optimizer.state_dict(
             ).copy(), 'scheduler': scheduler.state_dict().copy()
     }
-    torch.save(bestModel, join(root_path, run_name, 'best.pt'))
-    torch.save(mostrecentModel, join(root_path, run_name,'mostrecent.pt'))
+    torch.save(bestModel, join(root_path, run_name, 'best.pt'),_use_new_zipfile_serialization=False)
+    torch.save(bestModel['model'], join(root_path, run_name, 'best_only_model.pt'),
+               _use_new_zipfile_serialization=False)
+    torch.save(mostrecentModel, join(root_path, run_name,'mostrecent.pt'),_use_new_zipfile_serialization=False)
+    torch.save(mostrecentModel['model'], join(root_path, run_name,
+               'mostrecent_model.pt'), _use_new_zipfile_serialization=False)
