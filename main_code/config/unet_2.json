@@ -2,7 +2,7 @@
     "root_path": "logs",
     "GPUsetting": {
         "num_gpus": 4,
-        "gpu_index": [0,1,2,3]
+        "gpu_index": [0,1]
     },
     "dataset": {
         "snr": 2.0,
@@ -19,7 +19,7 @@
         "numBlock": 2,
         "bias": true,
         "pure": true,
-        "depth": [64,128,256,512],
+        "depth": [64,64,128,256],
         "num_chans": 64,
         "image_chans": 3,
         "kernel_size": 3
@@ -27,7 +27,7 @@
     "train": {
         "lr": 1e-4,
         "weigh_decay": 1e-8,
-        "batch_size": 44,
+        "batch_size": 4,
         "num_train": 300
     }
 }
