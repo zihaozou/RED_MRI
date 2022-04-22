@@ -63,7 +63,7 @@ class plWrapper(pl.LightningModule):
                  cnnKernelSize=3,
                  trainingPath='Dataset/BrainImages_train/Training_BrainImages_256x256_100.mat',
                  valPath='Dataset/BrainImages_test',
-                 previewImagePath='Dataset/BrainImages_test/brain_test_01.png',
+                 previewImagePath='/export1/project/Jiaming/potential_SDEQ_MRI/data/imgs/BrainImages_test/brain_test_01.png',
                  snr=2,
                  lr=5e-4,
                  weighDecay=1e-8,
@@ -98,11 +98,11 @@ class plWrapper(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         image, noise = batch
         noisyImage = image+noise
-        predNoise = self(noisyImage, create_graph=True, strict=True)
+        predImage = self(noisyImage, create_graph=True, strict=True)
 
-        loss = torch.mean(torch.pow(predNoise-noise, 2))
+        loss = torch.mean(torch.pow(predImage-image, 2))
         with torch.no_grad():
-            train_snr = compare_snr(image, noisyImage-predNoise)
+            train_snr = compare_snr(image, predImage)
         self.log("train_loss", loss, on_step=False,
                  on_epoch=True, prog_bar=False, logger=True)
         self.log("train_snr", train_snr, on_step=False,
@@ -116,16 +116,16 @@ class plWrapper(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         image, noise = batch
         noisyImage = image+noise
-        predNoise = self(noisyImage, create_graph=False, strict=False)
+        predImage = self(noisyImage, create_graph=False, strict=False)
         #predNoise = self(noisyImage)
         valPSNR = 0
         valSSIM = 0
         with torch.no_grad():
             for i in range(image.shape[0]):
                 valPSNR += peak_signal_noise_ratio(
-                    image[i, 0, :, :].detach().cpu().numpy(), torch.clamp(noisyImage[i, 0, :, :]-predNoise[i, 0, :, :], min=0, max=1).detach().cpu().numpy(), data_range=1)
+                    image[i, 0, :, :].detach().cpu().numpy(), torch.clamp(predImage[i, 0, :, :], min=0, max=1).detach().cpu().numpy(), data_range=1)
                 valSSIM += structural_similarity(image[i, 0, :, :].detach().cpu(
-                ).numpy(), torch.clamp(noisyImage[i, 0, :, :]-predNoise[i, 0, :, :], min=0, max=1).detach().cpu().numpy(), data_range=1)
+                ).numpy(), torch.clamp(predImage[i, 0, :, :], min=0, max=1).detach().cpu().numpy(), data_range=1)
         self.log("val_psnr", valPSNR/image.shape[0], on_step=False,
                  on_epoch=True, prog_bar=False, logger=True)
         self.log("val_ssim", valSSIM/image.shape[0], on_step=False,
@@ -134,12 +134,12 @@ class plWrapper(pl.LightningModule):
 
     def validation_epoch_end(self, outputs) -> None:
         previewNoisyImage = self.previewImage+self.previewNoise
-        predPreviewNoise = self(
+        predPreviewImage = self(
             previewNoisyImage, create_graph=False, strict=False)
         prevPSNR = peak_signal_noise_ratio(
-            self.previewImage.detach().cpu().numpy().squeeze(), torch.clamp(previewNoisyImage-predPreviewNoise, min=0, max=1).detach().cpu().numpy().squeeze(), data_range=1)
+            self.previewImage.detach().cpu().numpy().squeeze(), torch.clamp(predPreviewImage, min=0, max=1).detach().cpu().numpy().squeeze(), data_range=1)
         prevSSIM = structural_similarity(self.previewImage.detach().cpu(
-        ).numpy().squeeze(), torch.clamp(previewNoisyImage-predPreviewNoise, min=0, max=1).detach().cpu().numpy().squeeze(), data_range=1)
+        ).numpy().squeeze(), torch.clamp(predPreviewImage, min=0, max=1).detach().cpu().numpy().squeeze(), data_range=1)
         noisyPSNR = peak_signal_noise_ratio(
             self.previewImage.detach().cpu().numpy().squeeze(), previewNoisyImage.detach().cpu().numpy().squeeze(), data_range=1)
         noisySSIM = structural_similarity(self.previewImage.detach().cpu(
@@ -185,14 +185,14 @@ class plWrapper(pl.LightningModule):
         sub11.imshow(previewNoisyImage.detach().cpu().squeeze()
                      [160:195, 136:171],  cmap='gray')
         subfigs[2].suptitle('Denoised Image')
-        main2.imshow(torch.clamp(previewNoisyImage-predPreviewNoise,
+        main2.imshow(torch.clamp(predPreviewImage,
                      min=0, max=1).detach().cpu().squeeze(), cmap='gray')
         main2.text(
             0, 240, f'PSNR: {prevPSNR:.2f}dB; SSIM: {prevSSIM:.2f}', color='white', fontsize='small')
-        sub20.imshow(torch.clamp(previewNoisyImage-predPreviewNoise,
+        sub20.imshow(torch.clamp(predPreviewImage,
                      min=0, max=1).detach().cpu().squeeze()
                      [42:77, 75:110], cmap='gray')
-        sub21.imshow(torch.clamp(previewNoisyImage-predPreviewNoise,
+        sub21.imshow(torch.clamp(predPreviewImage,
                      min=0, max=1).detach().cpu().squeeze()
                      [160:195, 136:171],  cmap='gray')
         self.logger.experiment.add_figure(
