@@ -21,6 +21,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from matplotlib.gridspec import GridSpec
 import argparse
 from model.gspnp.network_unet import UNetRes
+from torch.autograd.functional import vjp
 parser = argparse.ArgumentParser("CNN Trainer")
 parser.add_argument('--no_jacob', dest='jacob', default=True, action='store_false',
                     help='jacobnet')
