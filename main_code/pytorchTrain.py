@@ -21,7 +21,7 @@ from skimage.metrics import peak_signal_noise_ratio as psnr
 from sklearn.feature_extraction.image import extract_patches_2d
 import multiprocessing
 from torch.nn import DataParallel as DP
-from einops import rearrange
+#from einops import rearrange
 from torchvision.transforms.functional import crop
 import matplotlib.pyplot as plt
 from shutil import copyfile
@@ -85,6 +85,7 @@ class dataPreparer(object):
         return folder
     def wait(self):
         self.pid.join()
+        self.curr=(self.curr+1)%2
     def cleanUp(self):
         if isdir(join(self.savePath, self.tempFolderName[0])):
             system("rm %s -r" % (join(self.savePath, self.tempFolderName[0])))
@@ -103,9 +104,10 @@ class dataPreparer(object):
     def data_runner(self):
         size = 256
         currfolder = self.getNextFolder
+        print(f'preparing data at {currfolder}')
         if isdir(join(currfolder,'train')):
             system("rm %s -r" % (join(currfolder, 'train')))
-        if isdir(join(self.savePath, currfolder, 'val')):
+        if isdir(join(currfolder, 'val')):
             system("rm %s -r" % (join(currfolder, 'val')))
         mkdir(join(currfolder, 'train'))
         trainLst = np.array_split(np.asarray(listdir(self.trainPath)), self.numP)
@@ -222,7 +224,7 @@ if __name__ == '__main__':
                                  lr=lr, weight_decay=weighDecay)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(
         optimizer=optimizer, gamma=0.99)
-    lossFunc = torch.nn.MSELoss()
+    lossFunc = torch.nn.L1Loss()
     #
     if args.warm_up is not None:
         warmModel=torch.load(args.warm_up)
@@ -234,10 +236,10 @@ if __name__ == '__main__':
     if args.jacob:
         run_name += '_jacobian'
     run_name += datetime.now().strftime("%D%H:%M:%S").replace('/','_')
-    logger = SummaryWriter(log_dir=join(root_path, run_name))
+    logger = SummaryWriter(log_dir=join(root_path, run_name,'log'))
     copyfile(args.conf_path, join(root_path, run_name, args.conf_path.split('/')[-1]))
-    mkdir(join('/export1/project/DIV2K_PATCHED', run_name))
-    tempDataPath = join('/export1/project/DIV2K_PATCHED',run_name)
+    mkdir(join(root_path,run_name,'DIV2K_PATCHED'))
+    tempDataPath = join(root_path,run_name,'DIV2K_PATCHED')
     bestModel = None
     bestPSNR = np.NINF
 
@@ -272,6 +274,7 @@ if __name__ == '__main__':
                                     (noisyImage-predNoise).detach().cpu().numpy(), data_range=1)
                     pbar.set_description("epoch %d, PSNR: %.2f,loss: %.5e" % (e,trainPSNR,loss.item()))
             epochLoss += loss.item()
+            del predNoise,noisyImage,image,noise
         scheduler.step()
         logger.add_scalar(tag='train_loss',
                           scalar_value=epochLoss/len(trainLoader), global_step=e)
@@ -293,6 +296,7 @@ if __name__ == '__main__':
             bestModel = {'model': jacob.module.state_dict().copy(), 'optimizer': optimizer.state_dict(
             ).copy(), 'scheduler': scheduler.state_dict().copy()}
             bestPSNR = valPSNR
+        del predNoise,noisyImage,noise,image
         preview(testIm,jacob,logger,SNR,device,e)
         dataPre.wait()
     dataPre.cleanUp()
@@ -305,3 +309,4 @@ if __name__ == '__main__':
     torch.save(mostrecentModel, join(root_path, run_name,'mostrecent.pt'),_use_new_zipfile_serialization=False)
     torch.save(mostrecentModel['model'], join(root_path, run_name,
                'mostrecent_model.pt'), _use_new_zipfile_serialization=False)
+    torch.cuda.empty_cache()
