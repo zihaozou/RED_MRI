@@ -9,3 +9,4 @@ color_3.zip
 color_2.zip
 *.zip
 conv1.pt
+**/__pycache__
