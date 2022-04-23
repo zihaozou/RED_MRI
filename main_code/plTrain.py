@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 from model.models import DnCNN
 from model.cnn import DnCNN as spDnCNN
-from model.jacob import jacobinNet
+from model.jacob import jacobinNet,VJPNet
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 from utils.util import compare_snr
 import matplotlib.pyplot as plt
@@ -82,7 +82,8 @@ class plWrapper(pl.LightningModule):
         elif self.hparams.type == 'unet':
             self.dncnn = UNetRes(in_nc=1, out_nc=1, act_mode='E',nb=self.hparams['numBlock'],bias=self.hparams['bias'])
         if self.hparams['jacob']:
-            self.jacob = jacobinNet(self.dncnn)
+            self.jacob = VJPNet(self.dncnn)
+        self.dncnn.load_state_dict(torch.load('/export1/project/zihao/RED_MRI/red.pt',map_location='cpu'))
         previewImage = torch.from_numpy(np.asarray(
             Image.open(previewImagePath))).float().unsqueeze(0).unsqueeze(0)/255.0
         previewNoise = torch.FloatTensor(
@@ -99,11 +100,11 @@ class plWrapper(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         image, noise = batch
         noisyImage = image+noise
-        predImage = self(noisyImage, create_graph=True, strict=True)
+        predNoise = self(noisyImage, create_graph=True, strict=True)
 
-        loss = torch.mean(torch.pow(predImage-image, 2))
+        loss = torch.mean(torch.pow(predNoise-noise, 2))
         with torch.no_grad():
-            train_snr = compare_snr(image, predImage)
+            train_snr = compare_snr(image, noisyImage-predNoise)
         self.log("train_loss", loss, on_step=False,
                  on_epoch=True, prog_bar=False, logger=True)
         self.log("train_snr", train_snr, on_step=False,
@@ -117,16 +118,16 @@ class plWrapper(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         image, noise = batch
         noisyImage = image+noise
-        predImage = self(noisyImage, create_graph=False, strict=False)
+        predNoise = self(noisyImage, create_graph=False, strict=False)
         #predNoise = self(noisyImage)
         valPSNR = 0
         valSSIM = 0
         with torch.no_grad():
             for i in range(image.shape[0]):
                 valPSNR += peak_signal_noise_ratio(
-                    image[i, 0, :, :].detach().cpu().numpy(), torch.clamp(predImage[i, 0, :, :], min=0, max=1).detach().cpu().numpy(), data_range=1)
+                    image[i, 0, :, :].detach().cpu().numpy(), torch.clamp(noisyImage[i, 0, :, :]-predNoise[i, 0, :, :], min=0, max=1).detach().cpu().numpy(), data_range=1)
                 valSSIM += structural_similarity(image[i, 0, :, :].detach().cpu(
-                ).numpy(), torch.clamp(predImage[i, 0, :, :], min=0, max=1).detach().cpu().numpy(), data_range=1)
+                ).numpy(), torch.clamp(noisyImage[i, 0, :, :]-predNoise[i, 0, :, :], min=0, max=1).detach().cpu().numpy(), data_range=1)
         self.log("val_psnr", valPSNR/image.shape[0], on_step=False,
                  on_epoch=True, prog_bar=False, logger=True)
         self.log("val_ssim", valSSIM/image.shape[0], on_step=False,
@@ -135,12 +136,12 @@ class plWrapper(pl.LightningModule):
 
     def validation_epoch_end(self, outputs) -> None:
         previewNoisyImage = self.previewImage+self.previewNoise
-        predPreviewImage = self(
+        predPreviewNoise = self(
             previewNoisyImage, create_graph=False, strict=False)
         prevPSNR = peak_signal_noise_ratio(
-            self.previewImage.detach().cpu().numpy().squeeze(), torch.clamp(predPreviewImage, min=0, max=1).detach().cpu().numpy().squeeze(), data_range=1)
+            self.previewImage.detach().cpu().numpy().squeeze(), torch.clamp(previewNoisyImage-predPreviewNoise, min=0, max=1).detach().cpu().numpy().squeeze(), data_range=1)
         prevSSIM = structural_similarity(self.previewImage.detach().cpu(
-        ).numpy().squeeze(), torch.clamp(predPreviewImage, min=0, max=1).detach().cpu().numpy().squeeze(), data_range=1)
+        ).numpy().squeeze(), torch.clamp(previewNoisyImage-predPreviewNoise, min=0, max=1).detach().cpu().numpy().squeeze(), data_range=1)
         noisyPSNR = peak_signal_noise_ratio(
             self.previewImage.detach().cpu().numpy().squeeze(), previewNoisyImage.detach().cpu().numpy().squeeze(), data_range=1)
         noisySSIM = structural_similarity(self.previewImage.detach().cpu(
@@ -186,14 +187,14 @@ class plWrapper(pl.LightningModule):
         sub11.imshow(previewNoisyImage.detach().cpu().squeeze()
                      [160:195, 136:171],  cmap='gray')
         subfigs[2].suptitle('Denoised Image')
-        main2.imshow(torch.clamp(predPreviewImage,
+        main2.imshow(torch.clamp(previewNoisyImage-predPreviewNoise,
                      min=0, max=1).detach().cpu().squeeze(), cmap='gray')
         main2.text(
             0, 240, f'PSNR: {prevPSNR:.2f}dB; SSIM: {prevSSIM:.2f}', color='white', fontsize='small')
-        sub20.imshow(torch.clamp(predPreviewImage,
+        sub20.imshow(torch.clamp(previewNoisyImage-predPreviewNoise,
                      min=0, max=1).detach().cpu().squeeze()
                      [42:77, 75:110], cmap='gray')
-        sub21.imshow(torch.clamp(predPreviewImage,
+        sub21.imshow(torch.clamp(previewNoisyImage-predPreviewNoise,
                      min=0, max=1).detach().cpu().squeeze()
                      [160:195, 136:171],  cmap='gray')
         self.logger.experiment.add_figure(

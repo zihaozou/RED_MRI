@@ -17,11 +17,11 @@ class jacobinNet(nn.Module):
 
 class VJPNet(nn.Module):
     def __init__(self, dnn: nn.Module):
-        super(jacobinNet, self).__init__()
+        super(VJPNet, self).__init__()
         self.dnn = dnn
 
     def forward(self, x, create_graph=True, strict=True):
-        def f_(x): return self.dnn(x).mean([1, 2, 3]).sum()
-        def f(x): return autograd.functional.jacobian(f_, x, create_graph=create_graph, strict=strict)
-        vjVector=vjp(f,x,create_graph=create_graph, strict=strict)
-        return vjVector
+        #def f_(x): return self.dnn(x).mean([1, 2, 3]).sum()
+        #def f(x): return autograd.functional.jacobian(f_, x, create_graph=create_graph, strict=strict)
+        vjpResult=vjp(self.dnn,x,x,create_graph=create_graph, strict=strict)
+        return x-(vjpResult[0]+vjpResult[1])
