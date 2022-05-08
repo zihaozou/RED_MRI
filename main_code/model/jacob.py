@@ -24,4 +24,4 @@ class VJPNet(nn.Module):
         #def f_(x): return self.dnn(x).mean([1, 2, 3]).sum()
         #def f(x): return autograd.functional.jacobian(f_, x, create_graph=create_graph, strict=strict)
         vjpResult=vjp(self.dnn,x,x,create_graph=create_graph, strict=strict)
-        return x-(vjpResult[0]+vjpResult[1])
+        return x-0.5*(vjpResult[0]+vjpResult[1])

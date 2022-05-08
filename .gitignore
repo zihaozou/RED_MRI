@@ -8,3 +8,6 @@ DIV2K_valid_HR.zip
 *.zip
 conv1.pt
 **/__pycache__
+main_code/plTrain.py
+Dx+vjp.pt
+x-(Dx+vjp).pt

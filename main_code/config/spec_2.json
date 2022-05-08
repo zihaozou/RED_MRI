@@ -2,16 +2,18 @@
     "root_path": "logs",
     "GPUsetting": {
         "num_gpus": 1,
-        "gpu_index": "0"
+        "gpu_index": [
+            1
+        ]
     },
     "dataset": {
         "snr": 2.0,
         "num_workers": 8,
         "trainset": {
-            "path": "Dataset/BrainImages_train/Training_BrainImages_256x256_100.mat"
+            "path": "/export1/project/Jiaming/potential_SDEQ_MRI/data/imgs/Brain_train/Training_BrainImages_256x256_100.mat"
         },
         "valset": {
-            "path": "Dataset/BrainImages_test"
+            "path": "/export1/project/Jiaming/potential_SDEQ_MRI/data/imgs/BrainImages_test"
         }
     },
     "cnn_model": {
@@ -27,6 +29,6 @@
         "lr": 5e-4,
         "weigh_decay": 1e-8,
         "batch_size": 6,
-        "num_train": 100
+        "num_train": 200
     }
 }

@@ -83,7 +83,7 @@ class plWrapper(pl.LightningModule):
             self.dncnn = UNetRes(in_nc=1, out_nc=1, act_mode='E',nb=self.hparams['numBlock'],bias=self.hparams['bias'])
         if self.hparams['jacob']:
             self.jacob = VJPNet(self.dncnn)
-        self.dncnn.load_state_dict(torch.load('/export1/project/zihao/RED_MRI/red.pt',map_location='cpu'))
+        #self.dncnn.load_state_dict(torch.load('/export1/project/zihao/RED_MRI/red.pt',map_location='cpu'))
         previewImage = torch.from_numpy(np.asarray(
             Image.open(previewImagePath))).float().unsqueeze(0).unsqueeze(0)/255.0
         previewNoise = torch.FloatTensor(
@@ -289,7 +289,7 @@ if __name__ == "__main__":
         mode='max',
         filename='best_model')
     trainer = pl.Trainer(default_root_dir=join(root_path, run_name),
-                         gpus=GPUIndex if numGPU>1 else numGPU,
+                         gpus=GPUIndex,
                          max_epochs=numTrain,
                          num_sanity_val_steps=0,
                          check_val_every_n_epoch=1,
